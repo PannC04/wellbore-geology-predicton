@@ -1,217 +1,145 @@
-# wellbore-geology-predicton
-Kaggle data science competition
-
 # ROGII Wellbore Geology Prediction
 
-## Project Overview
+## Overview
 
-This project predicts **True Vertical Thickness (TVT)** for horizontal wells in the ROGII Wellbore Geology Prediction task.
+This project is based on the **ROGII Wellbore Geology Prediction** competition task.
 
-Each well contains horizontal well measurements such as measured depth, spatial coordinates, gamma ray logs, and known TVT values up to the Prediction Start point. After the Prediction Start point, TVT is hidden and must be predicted.
+The goal of the competition is to predict the geological position of a horizontal wellbore after a given **Prediction Start (PS)** point. The target variable is **TVT**, or **True Vertical Thickness**, which represents the stratigraphic depth of the wellbore within the geological column.
 
-The main objective is to use the horizontal well trajectory, gamma ray response, nearby geological information, and typewell data to estimate TVT accurately after the Prediction Start point.
+In real drilling operations, understanding the TVT position of a horizontal well is important because the wellbore may move up or down through geological layers as it is drilled. The challenge is to estimate this hidden TVT path using available well trajectory data and gamma ray measurements.
 
-## Problem Description
+## Problem Statement
 
-In each well, the model is given:
+For each horizontal well, TVT values are provided only up to the **Prediction Start** point through the `TVT_input` column. After this point, the true TVT values are hidden and must be predicted.
 
-* `MD`: measured depth along the wellbore
-* `X`, `Y`, `Z`: spatial coordinates of the well path
-* `GR`: gamma ray values along the horizontal well
-* `TVT_input`: known TVT values up to the Prediction Start point
-* Typewell data containing known `TVT`, `GR`, and geological layer information
+The task is to predict TVT for all required post-PS rows in the test wells.
 
-The target is to predict:
+The prediction problem can be summarized as:
 
-* `TVT` values after the Prediction Start point
+```text
+Given:
+- Horizontal well trajectory
+- Gamma ray measurements
+- Known TVT before the Prediction Start point
+- A corresponding vertical typewell
 
-Prediction quality is measured using **Root Mean Squared Error (RMSE)** between the predicted TVT and the true TVT values.
+Predict:
+- TVT values after the Prediction Start point
+```
 
-## Data Structure
+## Dataset Structure
 
-The dataset contains two main files for each well:
+Each well is represented by two main CSV files:
 
 ```text
 <well_id>__horizontal_well.csv
 <well_id>__typewell.csv
 ```
 
-### Horizontal Well File
+## Horizontal Well Data
 
-The horizontal well file contains the well trajectory and log measurements.
-
-Important columns include:
-
-```text
-MD
-X
-Y
-Z
-GR
-TVT
-TVT_input
-```
-
-### Typewell File
-
-The typewell file represents a vertical reference well assigned to the horizontal well.
+The horizontal well file contains measurements along the drilled lateral section.
 
 Important columns include:
 
-```text
-TVT
-GR
-Geology
-```
+| Column      | Description                                       |
+| ----------- | ------------------------------------------------- |
+| `MD`        | Measured depth along the wellbore                 |
+| `X`         | X coordinate of the well path                     |
+| `Y`         | Y coordinate of the well path                     |
+| `Z`         | Z coordinate or vertical position                 |
+| `GR`        | Gamma ray measurement along the horizontal well   |
+| `TVT`       | True TVT value, available in training data        |
+| `TVT_input` | TVT values known up to the Prediction Start point |
 
-The typewell provides a known relationship between gamma ray response and TVT, which helps estimate the TVT path of the horizontal well.
+The `TVT_input` column is especially important because it marks the part of the well where TVT is known. After the Prediction Start point, `TVT_input` becomes missing, and those are the rows that must be predicted.
 
-## Notebook Workflow
+## Typewell Data
 
-The notebook follows a dual-engine prediction workflow:
+Each horizontal well is assigned a corresponding **typewell**, which is a vertical reference well.
 
-```text
-Input CSV files
-      ↓
-Exploratory Data Analysis
-      ↓
-Feature Engineering
-      ↓
-Engine A: Ridge-SP
-      ↓
-Engine B: Drift-PF
-      ↓
-Final Blend
-      ↓
-Duplicate-well Recovery / Interpretation Hedge
-      ↓
-submission.csv
-```
+The typewell file contains the relationship between geological depth and gamma ray response.
 
-## Main Pipeline Components
+Important columns include:
 
-### 1. Exploratory Data Analysis
+| Column    | Description                                      |
+| --------- | ------------------------------------------------ |
+| `TVT`     | True Vertical Thickness in the vertical typewell |
+| `GR`      | Gamma ray measurement at each TVT depth          |
+| `Geology` | Geological layer or formation name               |
 
-The notebook first visualizes:
+The typewell provides a reference gamma ray signature for the geological column. By comparing gamma ray patterns from the horizontal well with the typewell, it is possible to estimate where the horizontal well is positioned in TVT space.
 
-* The horizontal well trajectory
-* Gamma ray behavior before and after the Prediction Start point
-* Typewell gamma ray signature
-* TVT drift after the Prediction Start point
-* Spatial relationships between neighboring wells
+## Key Concepts
 
-This helps identify wells where simple baseline prediction fails due to geological drift.
+### True Vertical Thickness, TVT
 
-### 2. Engine A — Ridge-SP
+**TVT** represents the stratigraphic depth of the wellbore within the geological column. It is the main value that must be predicted after the Prediction Start point.
 
-Engine A combines tracker-based predictions with machine learning models.
+### Prediction Start, PS
 
-Main components:
+The **Prediction Start** point is the location in each horizontal well where known TVT information stops. Before this point, `TVT_input` is available. After this point, TVT must be predicted.
 
-* Multiple tracker variants
-* Particle filter and beam-search estimates
-* Selector routing based on well behavior
-* LightGBM and CatBoost model stack
-* Ridge meta-model blending
-* Robust polynomial post-processing
+### Gamma Ray, GR
 
-Engine A is designed to stabilize predictions and reduce drift-related errors.
+**Gamma ray** measurements are used as a geological signal. Different rock layers can produce different gamma ray responses, so GR logs can help identify where the wellbore is located relative to the typewell.
 
-### 3. Engine B — Drift-PF
+### Typewell
 
-Engine B focuses on a likelihood-weighted particle filter and a separate ML stack.
+A **typewell** is a vertical reference well assigned to a horizontal well. It provides a known mapping between TVT and gamma ray response, helping support TVT prediction along the horizontal well.
 
-Main components:
+## Objective
 
-* Particle filter trackers
-* Beam search trackers
-* Cross-correlation features
-* 128-seed likelihood-weighted particle filter
-* Offset-well spatial priors
-* Formation plane and nearby-well features
-* LightGBM and CatBoost models
-* Savitzky-Golay smoothing
+The objective is to produce accurate TVT predictions for the hidden post-PS sections of each test well.
 
-Engine B is designed to be drift-resistant by combining physics-inspired tracking with machine learning.
-
-### 4. Final Blend
-
-The final prediction blends Engine A and Engine B:
-
-```text
-Final prediction = 0.55 × Engine A + 0.45 × Engine B
-```
-
-The purpose of blending is to reduce correlated errors because the two engines use different modelling strategies.
-
-### 5. Duplicate-well Recovery and Interpretation Hedge
-
-The notebook also includes a gated recovery step that checks for possible duplicate or highly similar wells.
-
-Recovery is only applied when strict gates pass, such as:
-
-* Very low pre-PS `TVT_input` error
-* High full-length GR similarity
-* High full-length Z similarity
-
-This prevents unsafe copying from similar but geologically different wells.
-
-## Model Outputs
-
-The final output is:
-
-```text
-submission.csv
-```
-
-The file contains predicted TVT values for the hidden post-PS sections of the test wells.
-
-Expected format:
+The final submission should contain:
 
 ```text
 id,tvt
-<well_id>_<row_index>,<predicted_tvt>
 ```
 
-## Performance Summary
+Where:
 
-Example notebook performance summary:
+| Column | Description                                    |
+| ------ | ---------------------------------------------- |
+| `id`   | Row identifier from the sample submission file |
+| `tvt`  | Predicted TVT value                            |
 
-| Stage               |       Score |
-| ------------------- | ----------: |
-| Last-known baseline | 15.91 ft CV |
-| Engine A — Ridge-SP |    7.776 LB |
-| Engine B — Drift-PF |    7.810 LB |
-| Final hedge         |    7.528 LB |
+## Evaluation Metric
 
-## How to Run
+Prediction quality is evaluated using **Root Mean Squared Error (RMSE)** between the predicted TVT values and the true TVT values.
 
-1. Open the notebook in Kaggle or Jupyter.
-2. Make sure the competition data is available in the expected input directory.
-3. If using pretrained artifacts, attach the required artifact dataset.
-4. Run all cells from top to bottom.
-5. The notebook will generate `submission.csv`.
-6. Submit `submission.csv` to Kaggle.
-
-## Requirements
-
-Main Python libraries used include:
+RMSE is calculated as:
 
 ```text
-numpy
-pandas
-scikit-learn
-lightgbm
-catboost
-scipy
-numba
-matplotlib
+RMSE = sqrt(mean((true_TVT - predicted_TVT)^2))
 ```
 
-Depending on the environment, some models may use GPU acceleration.
+Lower RMSE means better prediction accuracy.
 
-## Project Notes
+## Why the Task Is Challenging
 
-This solution combines geological reasoning, gamma ray matching, spatial well relationships, particle filtering, gradient boosting, and post-processing. The main challenge is preventing TVT drift after the Prediction Start point, especially in wells where gamma ray signatures are ambiguous.
+This task is difficult because the gamma ray signal can be ambiguous. Similar GR values may appear at different TVT depths, making it possible to match the wellbore to the wrong geological layer.
 
-The dual-engine structure improves robustness because each engine makes errors in different ways. Blending them gives a more stable final prediction.
+The horizontal well may also drift upward or downward through the geological column after the Prediction Start point. This means that simply holding the last known TVT value constant is often not accurate enough.
+
+The model must infer the hidden TVT path using a combination of:
+
+* Gamma ray behavior
+* Horizontal well trajectory
+* Known TVT before the Prediction Start point
+* Typewell reference data
+* Geological continuity and spatial context
+
+## Project Goal
+
+The goal of this project is to understand and solve a realistic geosteering prediction problem where geological position must be inferred from limited well data.
+
+The competition combines concepts from:
+
+* Petroleum engineering
+* Geology
+* Wellbore trajectory analysis
+* Gamma ray log interpretation
+* Machine learning
+* Time-series and spatial prediction
